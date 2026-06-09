@@ -1,25 +1,126 @@
+# ========== 新增加：更新配置模块（放在最前面） ==========
+import configparser
+import os
+
+APP_CONFIG_FILE = "app_config.ini"
+
+def init_update_config():
+    if not os.path.exists(APP_CONFIG_FILE):
+        config = configparser.ConfigParser()
+        config["APP_INFO"] = {
+            "local_version": "1.0.0",
+            "update_lock": "false"
+        }
+        with open(APP_CONFIG_FILE, "w", encoding="utf-8") as f:
+            config.write(f)
+
+def get_local_version():
+    config = configparser.ConfigParser()
+    config.read(APP_CONFIG_FILE, encoding="utf-8")
+    return config.get("APP_INFO", "local_version")
+
+def set_local_version(new_version):
+    config = configparser.ConfigParser()
+    config.read(APP_CONFIG_FILE, encoding="utf-8")
+    config.set("APP_INFO", "local_version", new_version)
+    with open(APP_CONFIG_FILE, "w", encoding="utf-8") as f:
+        config.write(f)
+
+def is_update_locked():
+    config = configparser.ConfigParser()
+    config.read(APP_CONFIG_FILE, encoding="utf-8")
+    return config.getboolean("APP_INFO", "update_lock")
+
+def set_update_lock(lock_status):
+    config = configparser.ConfigParser()
+    config.read(APP_CONFIG_FILE, encoding="utf-8")
+    config.set("APP_INFO", "update_lock", str(lock_status).lower())
+    with open(APP_CONFIG_FILE, "w", encoding="utf-8") as f:
+        config.write(f)
+
+# ========== 你原来的导入 ==========
 import os
 import requests
 import importlib.util
 import sys
 from config import REMOTE_CODE_URL, LOCAL_CODE_PATH, VERSION
 
-# ========== 热更新核心逻辑 ==========
+# ========== 新增加：云端更新检查（和你core里逻辑配套） ==========
+import urllib3
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+http = urllib3.PoolManager(timeout=10.0)
+cloud_config = None
+
+UPDATE_CONTROL_URL = "https://raw.githubusercontent.com/hd47zcfmd4-spec/ozon-pricing-calculator/main/update_control.ini"
+
+def load_cloud_update_config():
+    global cloud_config
+    try:
+        resp = http.request("GET", UPDATE_CONTROL_URL)
+        if resp.status == 200:
+            cloud_config = configparser.ConfigParser()
+            cloud_config.read_string(resp.data.decode("utf-8"))
+            return True
+    except Exception:
+        pass
+    return False
+
+def check_if_can_update():
+    if is_update_locked():
+        return False
+    if not cloud_config:
+        return False
+    try:
+        allow_update = cloud_config.getboolean("UPDATE", "allow_update")
+        latest_version = cloud_config.get("UPDATE", "latest_version")
+        local_version = get_local_version()
+        return allow_update and (latest_version > local_version)
+    except Exception:
+        return False
+
+def run_update():
+    if not cloud_config:
+        print("❌ 无法获取更新配置，更新失败")
+        return False
+    try:
+        update_url = cloud_config.get("UPDATE", "update_url")
+        local_file = cloud_config.get("UPDATE", "local_file")
+        new_version = cloud_config.get("UPDATE", "latest_version")
+
+        print("🔄 正在下载最新版本...")
+        resp = http.request("GET", update_url)
+        if resp.status != 200:
+            print(f"❌ 下载失败，状态码：{resp.status}")
+            return False
+
+        if os.path.exists(local_file):
+            os.rename(local_file, f"{local_file}.bak")
+
+        with open(local_file, "wb") as f:
+            f.write(resp.data)
+
+        set_local_version(new_version)
+        set_update_lock(True)
+        print("✅ 更新成功！已自动锁定更新，请重启软件。")
+        return True
+    except Exception as e:
+        print(f"❌ 更新失败：{e}")
+        if os.path.exists(f"{local_file}.bak"):
+            os.rename(f"{local_file}.bak", local_file)
+        return False
+
+# ========== 你原来的热更新函数不变 ==========
 def update_remote_code():
-    """从远程拉取最新的核心代码，拉取失败则使用本地缓存"""
     try:
         print(f"🔍 正在检查代码更新，当前版本：{VERSION}")
-        # 用HTTPS拉取远程代码，超时10秒
         response = requests.get(REMOTE_CODE_URL, timeout=10)
         response.raise_for_status()
-        # 把最新代码写入本地缓存文件
         with open(LOCAL_CODE_PATH, "w", encoding="utf-8") as f:
             f.write(response.text)
         print("✅ 代码更新成功，已拉取最新版本")
         return True
     except Exception as e:
         print(f"❌ 代码更新失败：{str(e)}")
-        # 拉取失败时，检查本地是否有缓存的旧代码
         if os.path.exists(LOCAL_CODE_PATH):
             print("⚠️  将使用本地缓存的旧代码，不影响正常使用")
             return True
@@ -28,21 +129,52 @@ def update_remote_code():
             return False
 
 def load_core_code():
-    """动态加载核心业务代码，返回核心模块"""
     if not update_remote_code():
         input("按回车键退出...")
         sys.exit(1)
-    # 动态导入core.py模块
     spec = importlib.util.spec_from_file_location("core", LOCAL_CODE_PATH)
     core_module = importlib.util.module_from_spec(spec)
-    # 把模块加入系统路径，保证内部导入正常
     sys.modules["core"] = core_module
     spec.loader.exec_module(core_module)
     return core_module
 
-# ========== 程序入口 ==========
+# ========== 程序入口：加菜单 + 更新检查 ==========
 if __name__ == "__main__":
-    # 先更新并加载核心代码
-    core = load_core_code()
-    # 调用核心代码的主函数，启动计算器
-    core.main()
+    # 1. 初始化版本配置
+    init_update_config()
+    print("正在检查更新配置...")
+    load_cloud_update_config()
+
+    # 2. 智能解锁更新
+    if check_if_can_update():
+        set_update_lock(False)
+        print("✅ 发现可用更新，已解锁更新权限")
+    else:
+        print("ℹ️ 暂无可用更新或更新已锁定")
+
+    # 3. 显示菜单
+    while True:
+        print("\n===== Ozon 算价工具 =====")
+        print("1. 启动算价工具")
+        print("2. 检查并更新软件")
+        print("3. 退出")
+        choice = input("请输入选项（1/2/3）：").strip()
+
+        if choice == "1":
+            print("\n🔧 正在启动算价核心...")
+            core = load_core_code()
+            core.main()  # 调用core里的main
+        elif choice == "2":
+            if check_if_can_update():
+                print("⚠️ 发现新版本，是否更新？(y/n)")
+                if input().lower() == "y":
+                    run_update()
+                else:
+                    print("已取消更新")
+            else:
+                print("当前已是最新版本，或更新未开放")
+        elif choice == "3":
+            print("👋 再见！")
+            break
+        else:
+            print("❌ 输入错误，请输入 1/2/3")

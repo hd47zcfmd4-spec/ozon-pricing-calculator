@@ -134,16 +134,14 @@ def calculate_pricing(CB, YF_rmb, YSJ, PTFL, HL=11.2, manual_profit_rate=None):
     CB_rub = CB * HL
     # 运费人民币 → 乘汇率转为卢布
     YF_rub = YF_rmb * HL
-    # 品牌推广费：预售价 1%
+    # 品牌推广费：预售价 0%
     TG = YSJ * 0.00
     # 平台费用
     PTF = YSJ * PTFL
-    # 评价费 固定250卢布
+    # 评价费
     JP = 0
-    # 利润：默认取 运费卢布*12% 、预售价*20% 的较大值；
-    # 可通过 manual_profit_rate 手动指定利润率（小数），此时 利润 = 进价(卢布) * 手动利润率
+    # 利润
     if manual_profit_rate is not None:
-        # 强制按利润率处理：利润 = 成本(卢布) * 利润率
         LR = CB_rub * float(manual_profit_rate)
     else:
         LR = max(YF_rub * 0.12, YSJ * 0.2)
@@ -167,7 +165,7 @@ def calculate_pricing(CB, YF_rmb, YSJ, PTFL, HL=11.2, manual_profit_rate=None):
     }
 
 
-# 封装物流计算函数，方便重复调用
+# 封装物流计算函数
 def calc_shipping_once(length, width, height, weight, price):
     vol_w, charge_w, res = calculate_shipping(length, width, height, weight, price)
     return vol_w, charge_w, res
@@ -176,16 +174,13 @@ def calc_shipping_once(length, width, height, weight, price):
 def main():
     print("===== 物流+定价综合计算器 =====")
     print("【第一步 录入固定尺寸/重量信息】")
-    # 尺寸重量只输入一次，不会变动
     length = get_float("长度（cm）：")
     width = get_float("宽度（cm）：")
     height = get_float("高度（cm）：")
     weight = get_float("重量（kg）：")
 
-    # 初始预售价
     price_input = get_float("商品初始预售价（卢布）：")
 
-    # 第二步 录入定价固定信息
     print("\n【第二步 录入成本/费率/汇率信息】")
     cost_rmb = get_float("产品成本（人民币元）：")
     platform_rate = get_float("平台费率（如0.05代表5%）：")
@@ -193,19 +188,15 @@ def main():
     if exchange <= 0:
         exchange = 11.2
 
-    # ========== 循环：重新输入预售价 → 重新算物流 → 重新算定价 ==========
-    # 手动利润率模式：一旦选择手动输入(y)，后续循环不再询问，直接使用该值
     manual_mode = False
     manual_profit_rate = None
     while True:
-        # 每次都用最新预售价 重新计算物流
         vol_w, charge_w, res = calc_shipping_once(length, width, height, weight, price_input)
 
         print(f"\n----- 最新物流计算结果 -----")
         print(f"体积重量：{vol_w:.3f} kg")
         print(f"计费重量：{charge_w:.3f} kg")
 
-        # 物流异常拦截
         if isinstance(res, str):
             print(f"❌ 物流异常：{res}")
             price_input = get_float("请重新输入商品预售价（卢布）：")
@@ -215,20 +206,17 @@ def main():
             price_input = get_float("请重新输入商品预售价（卢布）：")
             continue
 
-        # 获取最新物流运费（人民币）
         best_service = min(res, key=lambda x: x[1])
         ship_name, ship_cost_rmb = best_service
         print(f"✅ 优选物流：{ship_name}")
         print(f"✅ 最新物流运费（人民币）：{ship_cost_rmb:.2f}")
 
-        # 询问是否手动设置利润率（仅首次选择后生效）
         if not manual_mode:
             use_manual = input("是否手动设置利润率？(y/N)：").strip().lower()
             if use_manual == 'y':
                 manual_profit_rate = get_float("请输入利润率（例如0.2代表20%）：")
             manual_mode = True
 
-        # 使用最新预售价 + 最新运费 计算定价
         price_data = calculate_pricing(cost_rmb, ship_cost_rmb, price_input, platform_rate, exchange, manual_profit_rate=manual_profit_rate)
 
         print("\n----- 最新定价明细（单位：卢布）-----")
@@ -244,7 +232,6 @@ def main():
 
         if price_data["is_valid"]:
             print("\n✅ 差值在 0~4 区间内，定价合规！")
-            # 将最终卢布定价转换成人民币（人民币 = 卢布 / 汇率）
             final_price_rmb = price_input / exchange if exchange else None
             if final_price_rmb is not None:
                 print(f"最终定价折合人民币：{final_price_rmb:.2f} 元")
@@ -256,26 +243,101 @@ def main():
 
     print("\n🎉 最终定价已确认，可以使用！")
 
-# 等待按下 ESC 键后退出（跨平台兼容版，无 tty/termios 依赖）
+# 等待退出函数（只保留一个）
 def wait_for_esc():
     import sys
     if sys.platform == "win32":
-        # Windows 系统：支持按 ESC 退出
         try:
             import msvcrt
             print("\n请按 ESC 键退出...")
             while True:
                 if msvcrt.kbhit():
                     ch = msvcrt.getch()
-                    if ch == b'\x1b':  # ESC 键
+                    if ch == b'\x1b':
                         break
         except Exception:
-            # 若出现异常，降级为按回车退出
             print("\n无法检测键盘，按回车键继续...")
             input()
     else:
-        # Mac/Linux 系统：降级为按回车退出，不依赖 tty/termios
         print("\n按回车键继续...")
         input()
 
 wait_for_esc()
+
+# ====================== 智能更新模块 ======================
+import urllib3
+import configparser
+import os
+from config import (
+    init_update_config,
+    get_local_version,
+    set_local_version,
+    is_update_locked,
+    set_update_lock
+)
+
+UPDATE_CONTROL_URL = "https://raw.githubusercontent.com/hd47zcfmd4-spec/ozon-pricing-calculator/main/update_control.ini"
+
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+http = urllib3.PoolManager(timeout=10.0)
+cloud_config = None
+
+def load_cloud_update_config():
+    global cloud_config
+    try:
+        resp = http.request("GET", UPDATE_CONTROL_URL)
+        if resp.status == 200:
+            cloud_config = configparser.ConfigParser()
+            cloud_config.read_string(resp.data.decode("utf-8"))
+            return True
+    except Exception:
+        pass
+    return False
+
+def check_if_can_update():
+    if is_update_locked():
+        return False
+    if not cloud_config:
+        return False
+    try:
+        allow_update = cloud_config.getboolean("UPDATE", "allow_update")
+        latest_version = cloud_config.get("UPDATE", "latest_version")
+        local_version = get_local_version()
+        return allow_update and (latest_version > local_version)
+    except Exception:
+        return False
+
+def run_update():
+    if not cloud_config:
+        print("❌ 无法获取更新配置，更新失败")
+        return False
+    try:
+        update_url = cloud_config.get("UPDATE", "update_url")
+        local_file = cloud_config.get("UPDATE", "local_file")
+        new_version = cloud_config.get("UPDATE", "latest_version")
+
+        print("🔄 正在下载最新版本...")
+        resp = http.request("GET", update_url)
+        if resp.status != 200:
+            print(f"❌ 下载失败，状态码：{resp.status}")
+            return False
+
+        if os.path.exists(local_file):
+            os.rename(local_file, f"{local_file}.bak")
+
+        with open(local_file, "wb") as f:
+            f.write(resp.data)
+
+        set_local_version(new_version)
+        set_update_lock(True)
+        print("✅ 更新成功！已自动锁定更新，请重启软件。")
+        return True
+    except Exception as e:
+        print(f"❌ 更新失败：{e}")
+        if os.path.exists(f"{local_file}.bak"):
+            os.rename(f"{local_file}.bak", local_file)
+        return False
+
+# ====================== 自启动 ======================
+if __name__ == "__main__":
+    main()
