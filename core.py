@@ -120,7 +120,7 @@ def calculate_shipping(length, width, height, weight, price):
     return volume_weight, chargeable_weight, results
 
 
-def calculate_pricing(CB, YF_rmb, YSJ, PTFL, HL=11.2, manual_LR=None):
+def calculate_pricing(CB, YF_rmb, YSJ, PTFL, HL=11.2, manual_profit_rate=None):
     """
     全部核算单位：卢布
     CB: 产品成本(人民币)
@@ -128,6 +128,7 @@ def calculate_pricing(CB, YF_rmb, YSJ, PTFL, HL=11.2, manual_LR=None):
     YSJ: 预售价(卢布)
     PTFL: 平台费率
     HL: 汇率 1人民币 = HL 卢布
+    manual_profit_rate: 可选手动利润率，单位为小数（例如 0.2 代表 20%）
     """
     # 成本转为卢布
     CB_rub = CB * HL
@@ -139,9 +140,10 @@ def calculate_pricing(CB, YF_rmb, YSJ, PTFL, HL=11.2, manual_LR=None):
     PTF = YSJ * PTFL
     # 评价费 固定250卢布
     JP = 0
-    # 利润：默认取 运费卢布*12% 、预售价*20% 的较大值；可通过 manual_LR 手动指定（单位：卢布）
-    if manual_LR is not None:
-        LR = float(manual_LR)
+    # 利润：默认取 运费卢布*12% 、预售价*20% 的较大值；
+    # 可通过 manual_profit_rate 手动指定，计算公式：成本*利润率=利润
+    if manual_profit_rate is not None:
+        LR = CB_rub * float(manual_profit_rate)
     else:
         LR = max(YF_rub * 0.12, YSJ * 0.2)
     # 最终核算售价(卢布)
@@ -191,9 +193,9 @@ def main():
         exchange = 11.2
 
     # ========== 循环：重新输入预售价 → 重新算物流 → 重新算定价 ==========
-    # 手动利润模式：一旦选择手动输入(y)，后续循环不再询问，直接使用该值
+    # 手动利润率模式：一旦选择手动输入(y)，后续循环不再询问，直接使用该值
     manual_mode = False
-    manual_lr_val = None
+    manual_profit_rate = None
     while True:
         # 每次都用最新预售价 重新计算物流
         vol_w, charge_w, res = calc_shipping_once(length, width, height, weight, price_input)
@@ -218,15 +220,15 @@ def main():
         print(f"✅ 优选物流：{ship_name}")
         print(f"✅ 最新物流运费（人民币）：{ship_cost_rmb:.2f}")
 
-        # 询问是否手动设置利润（仅首次选择后生效）
+        # 询问是否手动设置利润率（仅首次选择后生效）
         if not manual_mode:
-            use_manual = input("是否手动设置利润？(y/N)：").strip().lower()
+            use_manual = input("是否手动设置利润率？(y/N)：").strip().lower()
             if use_manual == 'y':
-                manual_lr_val = get_float("请输入利润金额（卢布）：")
+                manual_profit_rate = get_float("请输入利润率（例如0.2代表20%）：")
             manual_mode = True
 
         # 使用最新预售价 + 最新运费 计算定价
-        price_data = calculate_pricing(cost_rmb, ship_cost_rmb, price_input, platform_rate, exchange, manual_LR=manual_lr_val)
+        price_data = calculate_pricing(cost_rmb, ship_cost_rmb, price_input, platform_rate, exchange, manual_profit_rate=manual_profit_rate)
 
         print("\n----- 最新定价明细（单位：卢布）-----")
         print(f"产品成本(转卢布)：{price_data['CB_rub']:.2f}")
