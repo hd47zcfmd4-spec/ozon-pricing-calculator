@@ -134,7 +134,7 @@ def calculate_pricing(CB, YF_rmb, YSJ, PTFL, HL=11.2, manual_LR=None):
     # 运费人民币 → 乘汇率转为卢布
     YF_rub = YF_rmb * HL
     # 品牌推广费：预售价 1%
-    TG = YSJ * 0.01
+    TG = YSJ * 0.00
     # 平台费用
     PTF = YSJ * PTFL
     # 评价费 固定250卢布
