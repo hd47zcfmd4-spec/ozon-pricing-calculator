@@ -141,8 +141,9 @@ def calculate_pricing(CB, YF_rmb, YSJ, PTFL, HL=11.2, manual_profit_rate=None):
     # 评价费 固定250卢布
     JP = 0
     # 利润：默认取 运费卢布*12% 、预售价*20% 的较大值；
-    # 可通过 manual_profit_rate 手动指定，计算公式：成本*利润率=利润
+    # 可通过 manual_profit_rate 手动指定利润率（小数），此时 利润 = 进价(卢布) * 手动利润率
     if manual_profit_rate is not None:
+        # 强制按利润率处理：利润 = 成本(卢布) * 利润率
         LR = CB_rub * float(manual_profit_rate)
     else:
         LR = max(YF_rub * 0.12, YSJ * 0.2)
