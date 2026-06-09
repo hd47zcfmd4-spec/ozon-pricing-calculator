@@ -256,30 +256,26 @@ def main():
 
     print("\n🎉 最终定价已确认，可以使用！")
 
-    # 等待按下 ESC 键后退出（跨平台）
-    def wait_for_esc():
-        import sys
+# 等待按下 ESC 键后退出（跨平台兼容版，无 tty/termios 依赖）
+def wait_for_esc():
+    import sys
+    if sys.platform == "win32":
+        # Windows 系统：支持按 ESC 退出
         try:
-            # Windows
             import msvcrt
-            print('\n请按 ESC 键退出...')
+            print("\n请按 ESC 键退出...")
             while True:
-                ch = msvcrt.getch()
-                if ch == b'\x1b':
-                    break
-        except Exception:
-            # POSIX
-            import tty, termios
-            print('\n请按 ESC 键退出...')
-            fd = sys.stdin.fileno()
-            old = termios.tcgetattr(fd)
-            try:
-                tty.setraw(fd)
-                while True:
-                    ch = sys.stdin.read(1)
-                    if ch == '\x1b':
+                if msvcrt.kbhit():
+                    ch = msvcrt.getch()
+                    if ch == b'\x1b':  # ESC 键
                         break
-            finally:
-                termios.tcsetattr(fd, termios.TCSADRAIN, old)
+        except Exception:
+            # 若出现异常，降级为按回车退出
+            print("\n无法检测键盘，按回车键继续...")
+            input()
+    else:
+        # Mac/Linux 系统：降级为按回车退出，不依赖 tty/termios
+        print("\n按回车键继续...")
+        input()
 
-    wait_for_esc()
+wait_for_esc()
